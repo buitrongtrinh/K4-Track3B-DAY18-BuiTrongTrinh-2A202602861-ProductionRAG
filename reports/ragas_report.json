@@ -1,0 +1,171 @@
+{
+  "aggregate": {
+    "faithfulness": 0.8975,
+    "answer_relevancy": 0.8443,
+    "context_precision": 0.875,
+    "context_recall": 0.925
+  },
+  "num_questions": 20,
+  "failures": [
+    {
+      "question": "Một nhân viên Senior có 9 năm thâm niên được nghỉ bao nhiêu ngày phép năm và lương trong khoảng nào?",
+      "answer": "Theo Chính sách nghỉ phép năm 2024 (hiện hành), nhân viên 9 năm thâm niên được **18 ngày phép năm** có lương (15 ngày cơ bản + 3 ngày thâm niên, mỗi 3 năm cộng 1 ngày).\n\nVề mức lương cụ thể trong khoảng nào, context không có thông tin → Không tìm thấy thông tin.",
+      "ground_truth": "Theo chính sách v2024: 15 ngày cơ bản + 3 ngày thâm niên (9÷3=3) = 18 ngày phép. Lương Senior (P3-P4): 20-35 triệu VNĐ/tháng.",
+      "scores": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.5
+      },
+      "avg_score": 0.375,
+      "worst_metric": "answer_relevancy",
+      "score": 0.0,
+      "diagnosis": "Answer doesn't match question — trả lời lan man hoặc né câu hỏi",
+      "suggested_fix": "Improve prompt template: trả lời thẳng vào câu hỏi, ngắn gọn"
+    },
+    {
+      "question": "Nhân viên tạm ứng 15 triệu, sau 20 ngày mới thanh toán. Bị phạt bao nhiêu?",
+      "answer": "Phạt **2%/tháng** trên số tiền chưa hoàn ứng, tức **15.000.000 × 2% = 300.000 VNĐ** (áp dụng cho khoản quá hạn sau 15 ngày), khấu trừ vào lương tháng kế tiếp.",
+      "ground_truth": "Thời hạn thanh toán là 15 ngày. Quá hạn 5 ngày, bị tính phí 2%/tháng trên 15.000.000 VNĐ = 300.000 VNĐ/tháng (tính pro-rata khoảng 50.000 VNĐ cho 5 ngày).",
+      "scores": {
+        "faithfulness": 0.4,
+        "answer_relevancy": 0.7894055367919641,
+        "context_precision": 0.9999999999,
+        "context_recall": 0.5
+      },
+      "avg_score": 0.6724,
+      "worst_metric": "faithfulness",
+      "score": 0.4,
+      "diagnosis": "LLM hallucinating — câu trả lời có claim không có trong context",
+      "suggested_fix": "Tighten prompt (chỉ dùng context), temperature=0, bắt trích dẫn nguồn"
+    },
+    {
+      "question": "Có cần kích hoạt xác thực đa yếu tố (MFA) không?",
+      "answer": "Có. Tất cả nhân viên **bắt buộc** kích hoạt MFA cho tài khoản email, VPN và các hệ thống nội bộ; phương thức được chấp nhận gồm ứng dụng Authenticator (ưu tiên), SMS OTP hoặc YubiKey.",
+      "ground_truth": "Có, theo chính sách mật khẩu v2.0 hiện hành, tất cả nhân viên bắt buộc kích hoạt MFA cho email, VPN và hệ thống nội bộ. Chính sách cũ v1.0 không yêu cầu MFA.",
+      "scores": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.7247939397024584,
+        "context_precision": 0.9999999999,
+        "context_recall": 0.5
+      },
+      "avg_score": 0.8062,
+      "worst_metric": "context_recall",
+      "score": 0.5,
+      "diagnosis": "Missing relevant chunks — context thiếu thông tin cần cho ground truth",
+      "suggested_fix": "Improve chunking (parent-child / giữ nguyên bảng), tăng top_k, thêm BM25/HyQA"
+    },
+    {
+      "question": "Thâm niên bao nhiêu năm thì được cộng thêm ngày phép?",
+      "answer": "Theo chính sách hiện hành (2024), nhân viên có thâm niên từ **3 năm trở lên** được cộng thêm **1 ngày phép cho mỗi 3 năm** làm việc liên tục (chính sách 2023 cũ yêu cầu 5 năm).",
+      "ground_truth": "Theo chính sách v2024 hiện hành, nhân viên có thâm niên từ 3 năm trở lên được cộng thêm 1 ngày phép cho mỗi 3 năm. Chính sách cũ v2023 yêu cầu 5 năm.",
+      "scores": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.756546654291563,
+        "context_precision": 0.49999999995,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.8141,
+      "worst_metric": "context_precision",
+      "score": 0.49999999995,
+      "diagnosis": "Too many irrelevant chunks — chunk liên quan bị xếp dưới chunk nhiễu",
+      "suggested_fix": "Add reranking, metadata filter (version/hiệu lực), giảm top_k"
+    },
+    {
+      "question": "Muốn mua thiết bị trị giá 55 triệu cần ai phê duyệt?",
+      "answer": "Đơn hàng 55.000.000 VNĐ (trên 50.000.000 VNĐ) cần **Tổng Giám đốc (CEO)** phê duyệt. Ngoài ra, do là thiết bị CNTT nên cần xác nhận cấu hình kỹ thuật của phòng CNTT trước khi đề xuất, và phải đính kèm ít nhất 3 báo giá (vì trên 10.000.000 VNĐ).",
+      "ground_truth": "Đơn hàng trên 50.000.000 VNĐ cần Tổng Giám đốc (CEO) phê duyệt.",
+      "scores": {
+        "faithfulness": 0.5,
+        "answer_relevancy": 0.848236259541341,
+        "context_precision": 0.9999999999,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.8371,
+      "worst_metric": "faithfulness",
+      "score": 0.5,
+      "diagnosis": "LLM hallucinating — câu trả lời có claim không có trong context",
+      "suggested_fix": "Tighten prompt (chỉ dùng context), temperature=0, bắt trích dẫn nguồn"
+    },
+    {
+      "question": "Nhân viên được nghỉ bao nhiêu ngày phép năm?",
+      "answer": "Theo Chính sách nghỉ phép năm (Phiên bản 2024, hiệu lực 01/01/2024), mỗi nhân viên chính thức được hưởng **15 ngày phép năm** có lương (tăng từ 12 ngày theo phiên bản 2023 đã bị thay thế).",
+      "ground_truth": "Theo chính sách hiện hành (v2024), nhân viên được nghỉ 15 ngày phép năm có lương. Chính sách cũ (v2023) là 12 ngày nhưng đã bị thay thế.",
+      "scores": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.848845070632407,
+        "context_precision": 0.49999999995,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.8372,
+      "worst_metric": "context_precision",
+      "score": 0.49999999995,
+      "diagnosis": "Too many irrelevant chunks — chunk liên quan bị xếp dưới chunk nhiễu",
+      "suggested_fix": "Add reranking, metadata filter (version/hiệu lực), giảm top_k"
+    },
+    {
+      "question": "Thông tin lương thuộc cấp độ phân loại dữ liệu nào?",
+      "answer": "Thông tin lương thuộc cấp độ **Bí mật** (cấp 3), theo Quy chế chi trả lương: cấm chia sẻ với đồng nghiệp.",
+      "ground_truth": "Theo quy chế chi trả lương, thông tin lương được phân loại là dữ liệu Bí mật, cấm chia sẻ với đồng nghiệp. Theo chính sách phân loại dữ liệu, dữ liệu Bí mật (cấp 3) phải mã hóa khi truyền và hạn chế truy cập theo need-to-know.",
+      "scores": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.916411971872559,
+        "context_precision": 0.49999999995,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.8541,
+      "worst_metric": "context_precision",
+      "score": 0.49999999995,
+      "diagnosis": "Too many irrelevant chunks — chunk liên quan bị xếp dưới chunk nhiễu",
+      "suggested_fix": "Add reranking, metadata filter (version/hiệu lực), giảm top_k"
+    },
+    {
+      "question": "Nhân viên được tài trợ khóa học 25 triệu, nghỉ việc sau 8 tháng hoàn thành khóa học. Phải hoàn trả bao nhiêu?",
+      "answer": "Nhân viên phải hoàn trả **100% chi phí đào tạo đã được tài trợ = 25.000.000 VNĐ**, vì nghỉ việc trước thời hạn cam kết 1 năm sau khi hoàn thành khóa học.",
+      "ground_truth": "Nhân viên phải cam kết làm việc ít nhất 1 năm sau khi hoàn thành khóa học. Nghỉ sau 8 tháng là trước hạn cam kết, phải hoàn trả 100% chi phí tức 25.000.000 VNĐ.",
+      "scores": {
+        "faithfulness": 0.75,
+        "answer_relevancy": 0.8076778469203848,
+        "context_precision": 0.9999999999,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.8894,
+      "worst_metric": "faithfulness",
+      "score": 0.75,
+      "diagnosis": "LLM hallucinating — câu trả lời có claim không có trong context",
+      "suggested_fix": "Tighten prompt (chỉ dùng context), temperature=0, bắt trích dẫn nguồn"
+    },
+    {
+      "question": "Khi phát hiện malware trên máy, nhân viên có nên tự xử lý không?",
+      "answer": "Không. Nhân viên tuyệt đối không được tự ý xử lý malware mà phải báo cáo trong vòng 1 giờ qua helpdesk@cty.vn hoặc hotline CNTT (ext. 9999) và chờ hướng dẫn của đội CNTT.",
+      "ground_truth": "KHÔNG. Nhân viên tuyệt đối không được tự ý xử lý malware. Phải báo cáo trong vòng 1 giờ qua helpdesk@cty.vn hoặc hotline CNTT. Tự ý xử lý bị coi là vi phạm nghiêm trọng.",
+      "scores": {
+        "faithfulness": 0.8,
+        "answer_relevancy": 0.9146494391924666,
+        "context_precision": 0.9999999999,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.9287,
+      "worst_metric": "faithfulness",
+      "score": 0.8,
+      "diagnosis": "LLM hallucinating — câu trả lời có claim không có trong context",
+      "suggested_fix": "Tighten prompt (chỉ dùng context), temperature=0, bắt trích dẫn nguồn"
+    },
+    {
+      "question": "Nhân viên thử việc có được hưởng bảo hiểm sức khỏe PVI không?",
+      "answer": "Không. Nhân viên thử việc chưa được hưởng gói bảo hiểm sức khỏe PVI (chỉ được tham gia bảo hiểm xã hội bắt buộc); gói PVI chỉ áp dụng cho nhân viên chính thức.",
+      "ground_truth": "KHÔNG. Nhân viên thử việc chưa được hưởng gói bảo hiểm sức khỏe PVI. Chỉ được tham gia bảo hiểm xã hội bắt buộc.",
+      "scores": {
+        "faithfulness": 0.75,
+        "answer_relevancy": 0.9834098293444845,
+        "context_precision": 0.99999999995,
+        "context_recall": 1.0
+      },
+      "avg_score": 0.9334,
+      "worst_metric": "faithfulness",
+      "score": 0.75,
+      "diagnosis": "LLM hallucinating — câu trả lời có claim không có trong context",
+      "suggested_fix": "Tighten prompt (chỉ dùng context), temperature=0, bắt trích dẫn nguồn"
+    }
+  ]
+}

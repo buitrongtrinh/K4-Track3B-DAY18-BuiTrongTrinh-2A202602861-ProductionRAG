@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Production RAG Pipeline — Ghép toàn bộ M1+M2+M3+M4+M5."""
 
-import os, sys, time
+import json, os, sys, time
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
@@ -16,6 +16,21 @@ from src.m3_rerank import CrossEncoderReranker
 from src.m4_eval import load_test_set, evaluate_ragas, failure_analysis, save_report
 from src.m5_enrichment import enrich_chunks
 from config import RERANK_TOP_K
+
+# parent_id → parent text: retrieve child (precision) → trả về parent (đủ context, không cắt bảng)
+_PARENTS: dict[str, str] = {}
+# Latency breakdown (ms): thời gian build từng bước + từng bước của mỗi query
+_BUILD_TIMES: dict[str, float] = {}
+_QUERY_TIMES: list[dict[str, float]] = []
+
+ANSWER_PROMPT = """Bạn là trợ lý tra cứu chính sách nội bộ công ty. Trả lời câu hỏi CHỈ dựa trên context.
+Quy tắc:
+- Trả lời thẳng vào câu hỏi bằng tiếng Việt, ngắn gọn (1-3 câu), nêu rõ con số và điều kiện liên quan.
+- Nếu context có nhiều phiên bản của cùng một chính sách: dùng phiên bản hiện hành (ngày hiệu lực mới nhất), \
+có thể nhắc phiên bản cũ đã bị thay thế.
+- Câu hỏi cần tính toán: áp dụng đúng quy định trong context và nêu phép tính.
+- Không thêm thông tin ngoài context. Nếu context không có thông tin cần thiết → trả lời "Không tìm thấy thông tin."
+"""
 
 
 def build_pipeline():
@@ -31,9 +46,12 @@ def build_pipeline():
     all_chunks = []
     for doc in docs:
         parents, children = chunk_hierarchical(doc["text"], metadata=doc["metadata"])
+        _PARENTS.update({p.metadata["parent_id"]: p.text for p in parents})
         for child in children:
             all_chunks.append({"text": child.text, "metadata": {**child.metadata, "parent_id": child.parent_id}})
-    print(f"  ✓ {len(all_chunks)} chunks from {len(docs)} documents ({time.time()-t0:.1f}s)", flush=True)
+    _BUILD_TIMES["chunking"] = (time.time() - t0) * 1000
+    print(f"  ✓ {len(all_chunks)} child chunks ({len(_PARENTS)} parents) from {len(docs)} documents "
+          f"({time.time()-t0:.1f}s)", flush=True)
 
     # Step 2: Enrichment (M5)
     t0 = time.time()
@@ -44,18 +62,22 @@ def build_pipeline():
         print(f"  ✓ Enriched {len(enriched)} chunks ({time.time()-t0:.1f}s)", flush=True)
     else:
         print("  ⚠️  M5 not implemented — using raw chunks", flush=True)
+    _BUILD_TIMES["enrichment"] = (time.time() - t0) * 1000
 
     # Step 3: Index (M2)
     t0 = time.time()
     print(f"\n[3/4] Indexing {len(all_chunks)} chunks (BM25 + Dense)...", flush=True)
     search = HybridSearch()
     search.index(all_chunks)
+    _BUILD_TIMES["indexing"] = (time.time() - t0) * 1000
     print(f"  ✓ Indexed ({time.time()-t0:.1f}s)", flush=True)
 
     # Step 4: Reranker (M3)
     t0 = time.time()
     print("\n[4/4] Loading reranker...", flush=True)
     reranker = CrossEncoderReranker()
+    reranker._load_model()  # load ngay để latency query đầu tiên không tính thời gian load model
+    _BUILD_TIMES["reranker_load"] = (time.time() - t0) * 1000
     print(f"  ✓ Reranker ready ({time.time()-t0:.1f}s)", flush=True)
 
     return search, reranker
@@ -63,19 +85,35 @@ def build_pipeline():
 
 def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker) -> tuple[str, list[str]]:
     """Run single query through pipeline."""
+    timings = {}
+    t0 = time.perf_counter()
     results = search.search(query)
-    docs = [{"text": r.text, "score": r.score, "metadata": r.metadata} for r in results]
-    reranked = reranker.rerank(query, docs, top_k=RERANK_TOP_K)
-    contexts = [r.text for r in reranked] if reranked else [r.text for r in results[:3]]
+    timings["hybrid_search"] = (time.perf_counter() - t0) * 1000
 
-    from config import OPENAI_API_KEY
-    if OPENAI_API_KEY and contexts:
+    t0 = time.perf_counter()
+    docs = [{"text": r.text, "score": r.score, "metadata": r.metadata} for r in results]
+    # Rerank toàn bộ children, rồi lấy top-k parent KHÁC NHAU theo thứ tự rerank
+    reranked = reranker.rerank(query, docs, top_k=len(docs))
+    ranked = [(r.text, r.metadata) for r in (reranked or results)]
+    contexts, seen = [], set()
+    for text, metadata in ranked:
+        pid = metadata.get("parent_id")
+        if (pid or text) in seen:
+            continue
+        seen.add(pid or text)
+        contexts.append(_PARENTS.get(pid, text))
+        if len(contexts) == RERANK_TOP_K:
+            break
+    timings["rerank"] = (time.perf_counter() - t0) * 1000
+
+    t0 = time.perf_counter()
+    from config import LLM_API_KEY, LLM_MODEL, get_llm_client
+    if LLM_API_KEY and contexts:
         try:
-            from openai import OpenAI
-            client = OpenAI()
-            context_str = "\n\n".join(contexts)
-            resp = client.chat.completions.create(model="gpt-4o-mini", messages=[
-                {"role": "system", "content": "Trả lời CHỈ dựa trên context. Nếu không có → nói 'Không tìm thấy.'"},
+            client = get_llm_client()
+            context_str = "\n\n---\n\n".join(contexts)
+            resp = client.chat.completions.create(model=LLM_MODEL, temperature=0, messages=[
+                {"role": "system", "content": ANSWER_PROMPT},
                 {"role": "user", "content": f"Context:\n{context_str}\n\nCâu hỏi: {query}"},
             ])
             answer = resp.choices[0].message.content
@@ -84,7 +122,41 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker) 
             answer = contexts[0]
     else:
         answer = contexts[0] if contexts else "Không tìm thấy thông tin."
+    timings["generation"] = (time.perf_counter() - t0) * 1000
+    _QUERY_TIMES.append(timings)
     return answer, contexts
+
+
+def report_latency(path: str = "reports/latency_report.json") -> dict:
+    """In + lưu bảng latency từng bước (build 1 lần + trung bình/p95 mỗi query)."""
+    steps = ["hybrid_search", "rerank", "generation"]
+    per_query = {}
+    for step in steps:
+        values = sorted(t[step] for t in _QUERY_TIMES)
+        if values:
+            per_query[step] = {"avg_ms": round(sum(values) / len(values), 1),
+                               "p95_ms": round(values[min(len(values) - 1, int(0.95 * len(values)))], 1),
+                               "max_ms": round(values[-1], 1)}
+    totals = sorted(sum(t[s] for s in steps) for t in _QUERY_TIMES)
+    if totals:
+        per_query["total"] = {"avg_ms": round(sum(totals) / len(totals), 1),
+                              "p95_ms": round(totals[min(len(totals) - 1, int(0.95 * len(totals)))], 1),
+                              "max_ms": round(totals[-1], 1)}
+
+    print("\nLATENCY BREAKDOWN")
+    print(f"  {'Build step':<16} {'ms':>10}")
+    for step, ms in _BUILD_TIMES.items():
+        print(f"  {step:<16} {ms:>10.0f}")
+    print(f"\n  {'Query step':<16} {'avg ms':>10} {'p95 ms':>10} {'max ms':>10}")
+    for step, st in per_query.items():
+        print(f"  {step:<16} {st['avg_ms']:>10.1f} {st['p95_ms']:>10.1f} {st['max_ms']:>10.1f}")
+
+    report = {"build_ms": {k: round(v, 1) for k, v in _BUILD_TIMES.items()},
+              "per_query_ms": per_query, "num_queries": len(_QUERY_TIMES)}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    return report
 
 
 def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
@@ -115,6 +187,7 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
 
     failures = failure_analysis(results.get("per_question", []))
     save_report(results, failures)
+    report_latency()
     return results
 
 
